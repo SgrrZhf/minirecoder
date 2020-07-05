@@ -19,13 +19,6 @@ typedef enum {
     kParityOdd,
 } SerialParity_t;
 
-typedef struct {
-    speed_t baudrate;
-    SerialDatabits_t databits;
-    SerialStopbits_t stopbits;
-    SerialParity_t parity;
-} SerialConfig_t;
-
 /**
  * @brief 设置串口通信速率
  *
