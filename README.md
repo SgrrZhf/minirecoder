@@ -2,7 +2,7 @@
 
 A serial port tool for recording serial port data. A low resource consumption tool writen by C.
 
-## Compile and Install
+## Build and Install
 
 1. cmake -B build
 1. cd build
