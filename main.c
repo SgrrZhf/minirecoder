@@ -128,14 +128,9 @@ static void serial_read_c(const char* port, int baudrate, bool timestamp_enable,
 
 static size_t get_timestamp(char* dst, size_t dst_size)
 {
-    struct timeval tv;
-    struct timezone tz;
-    if (gettimeofday(&tv, &tz) != 0) {
-        fprintf(stderr, "gettimeofday error, reason: %s\n", strerror(errno));
-        exit(1);
-    }
-    struct tm* t = gmtime((const time_t*)&tv.tv_sec);
-    return strftime(dst, dst_size, "%F %T", t);
+    time_t timep = time(NULL);
+    struct tm *p = localtime(&timep);
+    return strftime(dst, dst_size, "%F %T", p);
 }
 
 static void helpthen(const char* name)
