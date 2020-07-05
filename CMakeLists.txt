@@ -11,4 +11,4 @@ target_sources(${target} PRIVATE "./main.c" "./serial.c")
 target_include_directories(${target} PRIVATE ".")
 
 install(TARGETS ${target}
-        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+        RUNTIME DESTINATION "/usr/local/bin")
