@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <sys/time.h>
 #include <time.h>
 #include <unistd.h>
@@ -15,6 +16,7 @@
 #define PACKAGE "minirecoder"
 
 static void serial_read_c(const char* port, int baudrate, bool timestamp_enable, FILE* capture_file);
+static int create_file(const char* path);
 static void helpthen(const char* name);
 static size_t get_timestamp(char* dst, size_t dst_size);
 
@@ -45,8 +47,15 @@ int main(int argc, char* argv[])
             break;
         case 'C':
             if ((capture_file = fopen(optarg, "w")) == NULL) {
-                fprintf(stderr, "open %s failed, reason: %s\n", optarg, strerror(errno));
-                exit(1);
+                if (errno != 2) {
+                    fprintf(stderr, "open %s failed, errno: %d, reason: %s\n", optarg, errno, strerror(errno));
+                    exit(1);
+                }
+
+                if (create_file(optarg) == 0) {
+                    capture_file = fopen(optarg, "w");
+                    assert(capture_file);
+                }
             }
             break;
         case 't':
@@ -126,10 +135,50 @@ static void serial_read_c(const char* port, int baudrate, bool timestamp_enable,
     }
 }
 
+static int create_dir_recursive(const char* path)
+{
+    if (mkdir(path, S_IRUSR | S_IWUSR | S_IXUSR | S_IRGRP | S_IWGRP | S_IXGRP | S_IROTH | S_IXOTH) == 0) {
+        return 0;
+    }
+    if (errno != 2) {
+        fprintf(stderr, "create_dir error(%d),reason: %s", errno, strerror(errno));
+        return -1;
+    }
+    return -1;
+}
+
+static int create_file(const char* path)
+{
+    int ret = 0;
+    if (access(path, W_OK) == 0) {
+        return 0;
+    }
+
+    if (errno != 2) {
+        fprintf(stderr, "create_file error, errno: %d, reason: %s\n", errno, strerror(errno));
+        return -1;
+    }
+
+    int dir_len = strlen(path);
+    char* dir = malloc(dir_len + 1);
+    memcpy(dir, path, strlen(path));
+    dir[dir_len] = '\0';
+    char* p = strrchr(dir, '/');
+    if (p == NULL) {
+        ret = -1;
+        goto _clean;
+    }
+    *p = '\0';
+    ret = create_dir_recursive(dir);
+_clean:
+    free(dir);
+    return ret;
+}
+
 static size_t get_timestamp(char* dst, size_t dst_size)
 {
     time_t timep = time(NULL);
-    struct tm *p = localtime(&timep);
+    struct tm* p = localtime(&timep);
     return strftime(dst, dst_size, "%F %T", p);
 }
 
