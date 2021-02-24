@@ -1,11 +1,13 @@
 #include <assert.h>
 #include <errno.h>
 #include <getopt.h>
+#include <setjmp.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/signal.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <time.h>
@@ -15,15 +17,32 @@
 
 #define PACKAGE "minirecoder"
 
-static void serial_read_c(const char* port, int baudrate, bool timestamp_enable, FILE* capture_file);
-static int create_file(const char* path);
-static void helpthen(const char* name);
-static size_t get_timestamp(char* dst, size_t dst_size);
+static void serial_read_c(const char *port, int baudrate, bool timestamp_enable, FILE *capture_file);
+static int create_file(const char *path);
+static void helpthen(const char *name);
+static size_t get_timestamp(char *dst, size_t dst_size);
+static sigjmp_buf jmpbuf;
 
-int main(int argc, char* argv[])
+void signal_handler(int sig)
 {
+    printf("Exit...\n");
+    siglongjmp(jmpbuf, 1);
+    exit(0);
+}
+
+int main(int argc, char *argv[])
+{
+    if (signal(SIGINT, signal_handler) == SIG_ERR) {
+        printf("signal(%d) error, reason %s\n", SIGINT, strerror(errno));
+        exit(0);
+    }
+    if (signal(SIGTERM, signal_handler) == SIG_ERR) {
+        printf("signal(%d) error, reason %s\n", SIGKILL, strerror(errno));
+        exit(0);
+    }
+
     int baudrate = 115200;
-    FILE* capture_file = NULL;
+    FILE *capture_file = NULL;
     bool timestamp_enable = false;
     static struct option long_option[] = {
         { "baudrate", required_argument, NULL, 'b' },
@@ -71,17 +90,21 @@ int main(int argc, char* argv[])
         }
     }
 
-    const char* port = argv[argc - 1];
+    const char *port = argv[argc - 1];
     if (argc == 1 || port == NULL || port[0] == '-') {
         fprintf(stderr, "Unknow port\n");
         exit(1);
     }
 
-    serial_read_c(port, baudrate, timestamp_enable, capture_file);
+    if (sigsetjmp(jmpbuf, 1) == 0) {
+        serial_read_c(port, baudrate, timestamp_enable, capture_file);
+    } else {
+        fclose(capture_file);
+    }
     return 0;
 }
 
-static void print(FILE* fd, const char* format, ...)
+static void print(FILE *fd, const char *format, ...)
 {
     va_list args1;
     va_start(args1, format);
@@ -94,7 +117,7 @@ static void print(FILE* fd, const char* format, ...)
     }
 }
 
-static void serial_read_c(const char* port, int baudrate, bool timestamp_enable, FILE* capture_file)
+static void serial_read_c(const char *port, int baudrate, bool timestamp_enable, FILE *capture_file)
 {
     speed_t rate = serial_parse_baudrate(baudrate);
     if (rate == 0) {
@@ -102,7 +125,7 @@ static void serial_read_c(const char* port, int baudrate, bool timestamp_enable,
         return;
     }
 
-    FILE* fs = fopen(port, "rb");
+    FILE *fs = fopen(port, "rb");
     if (fs == NULL) {
         fprintf(stderr, "Open %s failed, reason: %s\n", port, strerror(errno));
         return;
@@ -115,6 +138,7 @@ static void serial_read_c(const char* port, int baudrate, bool timestamp_enable,
         while (!feof(fs) && !ferror(fs)) {
             char c;
             if (fread(&c, sizeof(c), 1, fs) == 0) {
+                printf("empty\n");
                 continue;
             }
             if (timestamp_enable && last_c == '\n') {
@@ -135,7 +159,7 @@ static void serial_read_c(const char* port, int baudrate, bool timestamp_enable,
     }
 }
 
-static int create_dir_recursive(const char* path)
+static int create_dir_recursive(const char *path)
 {
     if (mkdir(path, S_IRUSR | S_IWUSR | S_IXUSR | S_IRGRP | S_IWGRP | S_IXGRP | S_IROTH | S_IXOTH) == 0) {
         return 0;
@@ -147,7 +171,7 @@ static int create_dir_recursive(const char* path)
     return -1;
 }
 
-static int create_file(const char* path)
+static int create_file(const char *path)
 {
     int ret = 0;
     if (access(path, W_OK) == 0) {
@@ -160,10 +184,10 @@ static int create_file(const char* path)
     }
 
     int dir_len = strlen(path);
-    char* dir = malloc(dir_len + 1);
+    char *dir = malloc(dir_len + 1);
     memcpy(dir, path, strlen(path));
     dir[dir_len] = '\0';
-    char* p = strrchr(dir, '/');
+    char *p = strrchr(dir, '/');
     if (p == NULL) {
         ret = -1;
         goto _clean;
@@ -175,14 +199,14 @@ _clean:
     return ret;
 }
 
-static size_t get_timestamp(char* dst, size_t dst_size)
+static size_t get_timestamp(char *dst, size_t dst_size)
 {
     time_t timep = time(NULL);
-    struct tm* p = localtime(&timep);
+    struct tm *p = localtime(&timep);
     return strftime(dst, dst_size, "%F %T", p);
 }
 
-static void helpthen(const char* name)
+static void helpthen(const char *name)
 {
     printf("Usage: %s [OPTION]...<tty port device>\n"
            "A serial recoder for Linux and other unix-like system.\n\n"
