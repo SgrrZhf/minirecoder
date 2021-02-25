@@ -25,7 +25,6 @@ static sigjmp_buf jmpbuf;
 
 void signal_handler(int sig)
 {
-    printf("Exit...\n");
     siglongjmp(jmpbuf, 1);
     exit(0);
 }
@@ -99,8 +98,11 @@ int main(int argc, char *argv[])
     if (sigsetjmp(jmpbuf, 1) == 0) {
         serial_read_c(port, baudrate, timestamp_enable, capture_file);
     } else {
-        fclose(capture_file);
+        if (capture_file) {
+            fclose(capture_file);
+        }
     }
+    printf("Exit...\n");
     return 0;
 }
 
