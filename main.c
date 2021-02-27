@@ -7,6 +7,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/fcntl.h>
+#include <sys/select.h>
 #include <sys/signal.h>
 #include <sys/stat.h>
 #include <sys/time.h>
@@ -127,37 +129,48 @@ static void serial_read_c(const char *port, int baudrate, bool timestamp_enable,
         return;
     }
 
-    FILE *fs = fopen(port, "rb");
-    if (fs == NULL) {
+    int fs = open(port, O_RDONLY);
+    if (fs == -1) {
         fprintf(stderr, "Open %s failed, reason: %s\n", port, strerror(errno));
         return;
     }
 
-    serial_set_param(fileno(fs), rate, kDataBits8, kStopbits1, kParityNone);
+    serial_set_param(fs, rate, kDataBits8, kStopbits1, kParityNone);
 
+    fd_set read_set, ready_set;
+    char buff[1024];
     while (true) {
+        FD_ZERO(&read_set);
+        FD_SET(fs, &read_set);
+
         char last_c = '\n';
-        while (!feof(fs) && !ferror(fs)) {
-            char c;
-            if (fread(&c, sizeof(c), 1, fs) == 0) {
-                printf("empty\n");
-                continue;
-            }
-            if (timestamp_enable && last_c == '\n') {
-                char buf[32];
-                get_timestamp(buf, sizeof(buf));
-                print(capture_file, "[%s] ", buf);
-            }
-            print(capture_file, "%c", c);
+        while (true) {
+            int ret_size;
+            ready_set = read_set;
+            int ret = select(fs + 1, &ready_set, NULL, NULL, NULL);
+            if (FD_ISSET(fs, &ready_set)) {
+                ret_size = read(fs, buff, sizeof(buff));
+                if (ret_size == 0) {
+                    break;
+                }
 
-            last_c = c;
+                if (timestamp_enable && last_c == '\n') {
+                    char buf[32];
+                    get_timestamp(buf, sizeof(buf));
+                    print(capture_file, "[%s] ", buf);
+                }
+                print(capture_file, "%.*s", ret_size, buff);
+
+                last_c = buff[ret_size - 1];
+            }
         }
-        fclose(fs);
+        close(fs);
 
-        while ((fs = fopen(port, "rb")) == NULL) {
+        printf("try to reopen %s\n", port);
+        while ((fs = open(port, O_RDONLY)) == -1) {
             sleep(1);
         }
-        serial_set_param(fileno(fs), rate, kDataBits8, kStopbits1, kParityNone);
+        serial_set_param(fs, rate, kDataBits8, kStopbits1, kParityNone);
     }
 }
 

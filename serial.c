@@ -59,7 +59,7 @@ int serial_set_param(int fd, speed_t rate, SerialDatabits_t databits,
     }
 
     opt.c_iflag &= ~ICRNL; //必须要有，否则会隔行打印
-    opt.c_cc[VMIN] = 1; //阻塞式读取
+    opt.c_cc[VMIN] = 0; //阻塞式读取
     opt.c_cc[VTIME] = 0; //没有数据就一直阻塞
 
     if (tcsetattr(fd, TCSANOW, &opt) != 0) {
