@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 #include <sys/fcntl.h>
 #include <sys/select.h>
 #include <sys/signal.h>
@@ -42,9 +43,9 @@ int main(int argc, char *argv[])
         exit(0);
     }
 
-    int baudrate = 115200;
-    FILE *capture_file = NULL;
-    bool timestamp_enable = false;
+    int baudrate                       = 115200;
+    FILE *capture_file                 = NULL;
+    bool timestamp_enable              = false;
     static struct option long_option[] = {
         { "baudrate", required_argument, NULL, 'b' },
         { "capturefile", required_argument, NULL, 's' },
@@ -108,17 +109,44 @@ int main(int argc, char *argv[])
     return 0;
 }
 
-static void print(FILE *fd, const char *format, ...)
+/**
+ * @brief print string
+ *
+ * @param fd
+ * @param data
+ * @param size
+ * @param flags bitwise and with print_flag_t
+ */
+enum print_flag_t {
+    PRINT_WITH_TIMESTAMP = 0x01 << 0,
+};
+static int print(FILE *fd, const char *data, size_t size, uint32_t flags)
 {
-    va_list args1;
-    va_start(args1, format);
-    vfprintf(stdout, format, args1);
-    va_end(args1);
-    if (fd) {
-        va_start(args1, format);
-        vfprintf(fd, format, args1);
-        va_end(args1);
+    static char last_chr = '\n';
+
+    if (!data) {
+        return -1;
     }
+
+    char buf[32];
+    if ((flags & PRINT_WITH_TIMESTAMP) == PRINT_WITH_TIMESTAMP) {
+        if (get_timestamp(buf, sizeof(buf)) == 0) {
+            return -1;
+        }
+    }
+
+    for (const char *chr = data; chr < data + size; chr++) {
+        if (last_chr == '\n' && (flags & PRINT_WITH_TIMESTAMP) == PRINT_WITH_TIMESTAMP) {
+            fprintf(stdout, "[%s] ", buf);
+            if (fd)
+                fprintf(fd, "[%s] ", buf);
+        }
+        fprintf(stdout, "%c", *chr);
+        if (fd)
+            fprintf(fd, "%c", *chr);
+        last_chr = *chr;
+    }
+    return 0;
 }
 
 static void serial_read_c(const char *port, int baudrate, bool timestamp_enable, FILE *capture_file)
@@ -137,31 +165,26 @@ static void serial_read_c(const char *port, int baudrate, bool timestamp_enable,
 
     serial_set_param(fs, rate, kDataBits8, kStopbits1, kParityNone);
 
+    uint32_t print_flag = 0;
+    print_flag |= timestamp_enable ? PRINT_WITH_TIMESTAMP : 0;
+
     fd_set read_set, ready_set;
     char buff[1024];
     while (true) {
         FD_ZERO(&read_set);
         FD_SET(fs, &read_set);
 
-        char last_c = '\n';
         while (true) {
             int ret_size;
             ready_set = read_set;
-            int ret = select(fs + 1, &ready_set, NULL, NULL, NULL);
+            select(fs + 1, &ready_set, NULL, NULL, NULL);
             if (FD_ISSET(fs, &ready_set)) {
                 ret_size = read(fs, buff, sizeof(buff));
                 if (ret_size == 0) {
                     break;
                 }
 
-                if (timestamp_enable && last_c == '\n') {
-                    char buf[32];
-                    get_timestamp(buf, sizeof(buf));
-                    print(capture_file, "[%s] ", buf);
-                }
-                print(capture_file, "%.*s", ret_size, buff);
-
-                last_c = buff[ret_size - 1];
+                print(capture_file, buff, ret_size, print_flag);
             }
         }
         close(fs);
@@ -199,15 +222,15 @@ static int create_file(const char *path)
     }
 
     int dir_len = strlen(path);
-    char *dir = malloc(dir_len + 1);
+    char *dir   = malloc(dir_len + 1);
     memcpy(dir, path, strlen(path));
     dir[dir_len] = '\0';
-    char *p = strrchr(dir, '/');
+    char *p      = strrchr(dir, '/');
     if (p == NULL) {
         ret = -1;
         goto _clean;
     }
-    *p = '\0';
+    *p  = '\0';
     ret = create_dir_recursive(dir);
 _clean:
     free(dir);
